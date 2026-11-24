@@ -164,7 +164,7 @@
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2 text-rose-700 dark:text-rose-300 font-extrabold text-sm">
               <i data-lucide="bell-ring" class="w-5 h-5 animate-bounce"></i>
-              <span>ALARM PERINGATAN AKTIF (AGENDA ≤ 1 JAM & TUGAS H-1 BELUM SELESAI)</span>
+              <span>NOTIFIKASI & ALARM PERINGATAN AKTIF (AGENDA ≤ 1 JAM & TUGAS H-1 BELUM SELESAI)</span>
             </div>
             <div class="flex items-center gap-2">
               <button type="button" onclick="triggerTestAlarm()" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold cursor-pointer">Test Alarm</button>
@@ -686,7 +686,8 @@
       'deleteNotulensiArchive'
     ]);
 
-    function playSingleAlarmTone(isTest = false) {
+    // Alarm lebih panjang & sedikit keras: siren dwi-nada berulang setiap 2.2s (maks 12 pusingan atau hingga dibisukan)
+    function playLongLoudSirenBurst(isTest = false) {
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx) return;
@@ -695,34 +696,44 @@
           ALARM_AUDIO_CTX.resume().catch(() => {});
         }
         const now = ALARM_AUDIO_CTX.currentTime;
-        const notes = isTest ? [880, 1174.66, 880] : [987.77, 1318.51, 987.77, 1318.51];
-        notes.forEach((freq, idx) => {
+        const peakGain = isTest ? 0.36 : 0.42;
+        const pattern = [
+          { freq: 880, start: 0.0, dur: 0.34 },
+          { freq: 1174.66, start: 0.36, dur: 0.34 },
+          { freq: 880, start: 0.72, dur: 0.34 },
+          { freq: 1318.51, start: 1.08, dur: 0.46 }
+        ];
+
+        pattern.forEach((p) => {
           const osc = ALARM_AUDIO_CTX.createOscillator();
           const gain = ALARM_AUDIO_CTX.createGain();
           osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(freq, now + idx * 0.18);
-          gain.gain.setValueAtTime(0.001, now + idx * 0.18);
-          gain.gain.exponentialRampToValueAtTime(0.18, now + idx * 0.18 + 0.03);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.18 + 0.16);
+          osc.frequency.setValueAtTime(p.freq, now + p.start);
+          gain.gain.setValueAtTime(0.001, now + p.start);
+          gain.gain.exponentialRampToValueAtTime(peakGain, now + p.start + 0.03);
+          gain.gain.setValueAtTime(peakGain, now + p.start + p.dur - 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + p.start + p.dur);
           osc.connect(gain);
           gain.connect(ALARM_AUDIO_CTX.destination);
-          osc.start(now + idx * 0.18);
-          osc.stop(now + idx * 0.18 + 0.17);
+          osc.start(now + p.start);
+          osc.stop(now + p.start + p.dur + 0.01);
         });
       } catch (e) {}
     }
 
     function startAlarmSound(isTest = false) {
       stopAlarmSound();
-      playSingleAlarmTone(isTest);
-      if (!isTest) {
-        let count = 0;
-        ALARM_LOOP_TIMER = setInterval(() => {
-          count++;
-          playSingleAlarmTone(false);
-          if (count >= 4) stopAlarmSound();
-        }, 1400);
-      }
+      playLongLoudSirenBurst(isTest);
+      let cycles = 1;
+      const maxCycles = isTest ? 2 : 12;
+      ALARM_LOOP_TIMER = setInterval(() => {
+        if (cycles >= maxCycles) {
+          stopAlarmSound();
+          return;
+        }
+        cycles++;
+        playLongLoudSirenBurst(isTest);
+      }, 2200);
     }
 
     function stopAlarmSound() {
@@ -736,7 +747,11 @@
       if (!('Notification' in window)) return;
       if (Notification.permission === 'granted') {
         try {
-          new Notification(title, { body: body, icon: LOGO_URL });
+          new Notification(title, {
+            body: body,
+            icon: LOGO_URL,
+            requireInteraction: true
+          });
         } catch (e) {}
       } else if (Notification.permission !== 'denied') {
         Notification.requestPermission().catch(() => {});
@@ -754,15 +769,15 @@
         panel.classList.remove('hidden');
         const testCard = `
           <div class="p-3 rounded-2xl bg-amber-100 dark:bg-amber-900/50 border border-amber-400 text-amber-950 dark:text-amber-100 font-bold">
-            🔔 TEST ALARM AKTIF — Bunyi & notifikasi peringatan MUSAFA Mobile berfungsi normal.
+            🔔 TEST ALARM AKTIF — Notifikasi & bunyi siren panjang MUSAFA Mobile berfungsi normal.
           </div>
         `;
         if (!itemsBox.innerHTML.includes('TEST ALARM AKTIF')) {
           itemsBox.insertAdjacentHTML('afterbegin', testCard);
         }
       }
-      sendBrowserAlarmNotification('Test Alarm MUSAFA Mobile', 'Bunyi alarm & sistem peringatan berjalan normal.');
-      showToast('🔔 Test Alarm dijalankan!');
+      sendBrowserAlarmNotification('Test Alarm MUSAFA Mobile', 'Bunyi alarm panjang & notifikasi peringatan berjalan normal.');
+      showToast('🔔 Test Alarm dijalankan! Klik "Bisukan Alarm" untuk menghentikan.');
     }
 
     function evaluateAlarms(now) {
@@ -834,7 +849,7 @@
 
       if (shouldRing) {
         startAlarmSound(false);
-        showToast('🚨 Alarm peringatan aktif! Cek Agenda ≤ 1 jam atau Tugas H-1.');
+        showToast('🚨 Notifikasi & alarm peringatan aktif! Cek Agenda ≤ 1 jam atau Tugas H-1.');
       }
     }
 
